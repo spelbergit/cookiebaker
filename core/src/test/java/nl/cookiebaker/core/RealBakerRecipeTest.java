@@ -27,14 +27,14 @@ public class RealBakerRecipeTest {
     @Test
     public void testWholeRecipe() {
         CookieBaker cookieBaker = new CookieBaker();
+        IngredientStore ingredientStore = new IngredientStore();
 
         cookieBaker.provide(new OrderRecipe());
-        Object lastEvent = cookieBaker.doe(new OrderPlacedEvent(new Order(13)));
+        Object lastEvent = cookieBaker.doe(ingredientStore, new OrderPlacedEvent(new Order(13)));
         assertEquals(new GoodsManufacturedEvent(new Goods("Playmobil")), lastEvent);
 
-        lastEvent = cookieBaker.doe(new CustomerInfoReceivedEvent(new CustomerInfo("Jansen", "Invoice Address", "Shipping Address")));
+        lastEvent = cookieBaker.doe(ingredientStore, new CustomerInfoReceivedEvent(new CustomerInfo("Jansen", "Invoice Address", "Shipping Address")));
         assertEquals(new InvoiceWasSentEvent("Jansen", "Invoice Address"), lastEvent);
-
 
     }
 

@@ -61,12 +61,13 @@ class CookieBakerTest {
     public class CookieBakeRecipe {
 
         @Interaction(DoughRisesEvent.class)
-        public CookieBakedEvent riseDough() {
+        public DoughRisenEvent riseDough(IngredientStore ingredientStore) {
+            ingredientStore.storeIngredient("dough", "Fresh Flower");
             result += " Dough Rises";
-            return new CookieBakedEvent("Fresh Flower");
+            return new DoughRisenEvent();
         }
 
-        @Interaction({CookieBakedEvent.class, QuickBakeEvent.class})
+        @Interaction({DoughRisenEvent.class, QuickBakeEvent.class})
         public void bakeCookie(@Ingredient("dough") String dough) {
             result += " & Cookie Baked from " + dough;
         }
@@ -80,10 +81,7 @@ class CookieBakerTest {
 
     @Data
     @Event
-    private static class CookieBakedEvent {
-        @Ingredient("dough")
-        @NonNull
-        String dough;
+    private static class DoughRisenEvent {
     }
 
     @Data

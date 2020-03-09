@@ -15,21 +15,17 @@ limitations under the License.
 */
 package nl.cookiebaker.core;
 
-import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.TreeMap;
 import lombok.Data;
 import lombok.NonNull;
 
 public class CookieBaker {
 
-    private Map<Class<?>, InteractionDefinition> eventMethods = new HashMap<>();
-
-    private CookieBakerState state = new CookieBakerState();
+    private Map<Class<?>, InteractionInstance> interactionInstanceMap = new HashMap<>();
 
     public void provide(Object recipeInstance) {
         Class<?> recipeType = recipeInstance.getClass();
@@ -38,21 +34,29 @@ public class CookieBaker {
             if (interaction != null) {
                 Class<?>[] eventTypes = interaction.value();
                 for (Class<?> eventType : eventTypes) {
-                    eventMethods.put(eventType, new InteractionDefinition(state, eventType, method, recipeInstance));
+                    if (interactionInstanceMap.get(eventType) != null) {
+                        throw new IllegalArgumentException("More than 1 @Interaction for event " + eventType);
+                    }
+                    interactionInstanceMap.put(eventType, new InteractionInstance(eventType, method, recipeInstance));
                 }
             }
         }
     }
 
     public Object doe(Object event) {
+        IngredientStore ingredientStore = new IngredientStore();
+        return doe(ingredientStore, event);
+    }
+
+    public Object doe(IngredientStore ingredientStore, Object event) {
         while (event != null) {
-            InteractionDefinition interactionDefinition = eventMethods.get(event.getClass());
-            if (interactionDefinition == null) {
+            InteractionInstance interactionInstance = interactionInstanceMap.get(event.getClass());
+            if (interactionInstance == null) {
                 return event;
             }
-            state.grabIngredients(event);
+            ingredientStore.grabIngredients(event);
             try {
-                event = interactionDefinition.handle();
+                event = interactionInstance.handle(ingredientStore);
             } catch (IllegalArgumentException e) {
                 return event;
             }
@@ -62,39 +66,7 @@ public class CookieBaker {
 
 
     @Data
-    private static class CookieBakerState {
-        @NonNull
-        private final Map<String, IngredientInstance> ingredients = new TreeMap<>();
-
-        public IngredientInstance getIngredient(String name) {
-            IngredientInstance ingredientInstance = ingredients.get(name);
-            if (ingredientInstance == null) {
-                throw new IllegalArgumentException("Ingredient '" + name + "' is not available");
-            }
-            return ingredientInstance;
-        }
-
-        public void grabIngredients(Object event) {
-            for (Field field : event.getClass().getDeclaredFields()) {
-                Ingredient ingredient = field.getAnnotation(Ingredient.class);
-                if (ingredient != null) {
-                    try {
-                        String ingredientName = ingredient.value();
-                        field.setAccessible(true);
-                        Object ingredientValue = field.get(event);
-                        ingredients.put(ingredientName, new IngredientInstance(ingredientName, ingredientValue));
-                    } catch (IllegalAccessException e) {
-                        throw new IllegalStateException("Unable to grab ingredient from event: " + e.getMessage(), e);
-                    }
-                }
-            }
-        }
-    }
-
-    @Data
-    private static class InteractionDefinition {
-        @NonNull
-        private CookieBakerState cookieBakerState;
+    private static class InteractionInstance {
         @NonNull
         private Class<?> eventType;
         @NonNull
@@ -102,25 +74,36 @@ public class CookieBaker {
         @NonNull
         private Object recipeInstance;
 
-        public Object handle() {
+        public Object handle(@NonNull IngredientStore ingredientStore) {
             try {
                 Object[] args = new Object[method.getParameterCount()];
                 Parameter[] parameters = method.getParameters();
                 for (int i = 0; i < parameters.length; i++) {
                     Parameter parameter = parameters[i];
-                    Ingredient ingredient = parameter.getAnnotation(Ingredient.class);
-                    IngredientInstance ingredientInstance = cookieBakerState.getIngredient(ingredient.value());
-                    args[i] = ingredientInstance.getValue();
+                    args[i] = provideParameterValue(ingredientStore, parameter);
                 }
                 Object result = method.invoke(recipeInstance, args);
                 if (result != null && result.getClass().getAnnotation(Event.class) != null) {
-                    cookieBakerState.grabIngredients(result);
+                    ingredientStore.grabIngredients(result);
                     return result;
                 } else {
                     return null;
                 }
             } catch (IllegalAccessException | InvocationTargetException e) {
                 throw new IllegalStateException("Unable to handle event: " + e.getMessage(), e);
+            }
+        }
+
+        @NonNull
+        private Object provideParameterValue(IngredientStore ingredientStore, Parameter parameter) {
+            Ingredient ingredient = parameter.getAnnotation(Ingredient.class);
+            if (ingredient != null) {
+                IngredientInstance ingredientInstance = ingredientStore.getIngredient(ingredient.value());
+                return ingredientInstance.getValue();
+            } else if (parameter.getType().isAssignableFrom(IngredientStore.class)) {
+                return ingredientStore;
+            } else {
+              throw new IllegalArgumentException("Parameter missing @Ingredient annotation and not of supported types (" + IngredientStore.class.getSimpleName() + "): " + parameter);
             }
         }
     }
